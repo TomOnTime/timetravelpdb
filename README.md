@@ -6,8 +6,9 @@ Adds time travel to the Python Debugger.
 
 What's missing from debuggers is the ability to travel back in time.
 
-Ever step through a program and suddenly realize you wish you
-could jump back in time and know what a variable used to contain?
+Ever use a debugger to step through a program and suddenly realize
+you wish you could jump back in time and know what a variable used
+to contain?
 
 This version of PDB adds the ability to jump back in time to the
 state of your program as it was in the past.  You can examine

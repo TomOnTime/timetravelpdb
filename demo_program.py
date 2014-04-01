@@ -4,12 +4,8 @@ import timetravelpdb
 
 x = 500
 
-
-
-
 def add10(number):
   return number + 10
-
 
 print "foo"
 print "bar"
