@@ -1,0 +1,380 @@
+*** /System/Library/Frameworks/Python.framework/Versions/2.6/lib/python2.6/pdb.py	Wed Nov  6 00:37:53 2013
+--- timetravelpdb.py	Tue Apr  1 15:16:52 2014
+***************
+*** 12,19 ****
+--- 12,24 ----
+  import os
+  import re
+  import pprint
++ import signal
++ import time
+  import traceback
+  
++ def dlog(message):
++     #print message
++     pass
+  
+  class Restart(Exception):
+      """Causes a debugger to be restarted for the debugged python program."""
+***************
+*** 67,72 ****
+--- 72,85 ----
+          self.aliases = {}
+          self.mainpyfile = ''
+          self._wait_for_mainpyfile = 0
++         self._tomography_enabled = True  # Is snapshoting enabled.
++         self._tomography_pids = []  # List of snapshot pids, newest at the end.
++         self._tomography_id_of = {}  # pid -> serial number translation.
++         self._tomography_pid_of = {}  # Serial number -> pid translation.
++         self._tomography_descriptions = {}  # Serial -> human-readable description
++         self._tomography_serial = 0  # How many snapshots taken so far.
++         self._tomography_child = False  # Are we in a child process.
++         self.umax = 100  # Max tomographic copies to retain
+          # Try to load readline if it exists
+          try:
+              import readline
+***************
+*** 139,144 ****
+--- 152,297 ----
+              print >>self.stdout, '--Call--'
+              self.interaction(frame, None)
+  
++ 
++     def set_tomography_on(self):
++         self._tomography_enabled = True
++ 
++     def set_tomography(self):
++         self._tomography_enabled = False
++ 
++ 
++     def _tomography_snapshot(self, frame):
++         def _handle_cont(self, foo):
++             dlog('CONTINUE')
++             pass
++         def _handle_int(self, foo):
++             dlog('INT')
++             os._exit(0)
++             pass
++         dlog('SNAP')
++         pid = os.fork()
++         if pid:
++             # Parent:
++             self._tomography_pids.append(pid)
++             num = self._tomography_serial = self._tomography_serial + 1
++             self._tomography_id_of[pid] = num
++             self._tomography_pid_of[num] = pid
++             self.prompt = '(Pdb:%s) ' % (num-1,)
++             t = time.localtime()
++             desc = ('%s:%s' % (self.canonic(frame.f_code.co_filename), frame.f_lineno))[-75:]
++             self._tomography_descriptions[num] = '%s: %s [%s:%s:%s] %s'  % (
++                 num-1, pid, t[3], t[4], t[5], desc)
++         else:
++           # Child
++           self._tomography_child = True
++           dlog("CHILD SLEEPING")
++           signal.signal(signal.SIGCONT, _handle_cont)
++           signal.signal(signal.SIGINT, _handle_int)
++           signal.pause()
++           signal.signal(signal.SIGINT, signal.default_int_handler)
++           dlog("CHILD WAKING UP")
++           num = self._tomography_serial = self._tomography_serial + 1  # Skip ourself
++           self.prompt = '(Pdb:%s) ' % (num-1,)
++           return
++         dlog("PIDS = %s" % self._tomography_pids)
++         while len(self._tomography_pids) > self.umax:
++           victim = self._tomography_pids[0]
++           del self._tomography_pids[0]  # Forget it
++           self._forget_pid(victim)
++           os.kill(victim, signal.SIGTERM)  # Kill it.
++           dlog("KILLED %s" % victim)
++ 
++     def _forget_pid(self, pid):
++         serial = self._tomography_id_of[pid]
++         del self._tomography_id_of[pid]
++         del self._tomography_pid_of[serial]
++         del self._tomography_descriptions[serial]
++ 
++     def _tom_quit(self):
++       dlog("self._tomography_child =%s" % (self._tomography_child,))
++       if self._tomography_child:
++         dlog("THE CHILD, NO SNAPSHOT KILLING")
++         return
++       dlog("KILLING SNAPSHOTS")
++       for victim in self._tomography_pids:
++           os.kill(victim, signal.SIGTERM)  # Kill it.
++       self._tomography_pids = []
++       self._tomography_descriptions = {}
++       self._tomography_ids = {}
++         
++ 
++     def do_tom(self, arg):
++         self._tomography_enabled = not self._tomography_enabled
++         if self._tomography_enabled:
++             print "TOM ON"
++         else:
++             print "TOM OFF"
++ 
++     def do_uup(self, arg):
++       def _continue(self, foo):
++           dlog("UP DONE ; CONTINUE")
++       dlog("CHILD TELLING PARENT TO CONTINUE")
++       signal.signal(signal.SIGCONT, _continue)
++       os.kill(os.getppid(), signal.SIGCONT)
++       signal.pause()
++ 
++ 
++     def do_tomoff(self, arg):
++         print "TOM OFF"
++         self._tomography_enabled = False
++ 
++     def do_ulist(self, arg):
++       dlog(pprint.pformat(self._tomography_descriptions))
++       for pid in self._tomography_pids:
++         print self._tomography_descriptions[self._tomography_id_of[pid]]
++ 
++     def do_ujump(self, arg):
++ 
++       def _handle_cont(self, foo):
++           dlog("UJUMP DONE (CHILD POPPED).  CONTINUE")
++ 
++       def _handle_child(self, foo):
++           dlog("UJUMP DONE (CHILD DIED).  CONTINUE")
++           dlog("WAITPID(%s)" % pid)
++           try:
++             retcode = os.waitpid(pid, 0)
++           except OSError:
++             dlog("No such child: %s" % pid)
++             return
++           dlog("WAIT RET = %s" % (retcode,))
++ 
++       try:
++         #dlog("PIDS:")
++         #dlog(pprint.pformat(self._tomography_pids))
++         #dlog(pprint.pformat(self._tomography_descriptions))
++         #dlog(pprint.pformat(self._tomography_ids))
++         pid = self._tomography_pid_of[int(arg)+1]
++       except (IndexError, KeyError, ValueError):
++         print 'ERR: No such universe: %s' % arg
++         return
++       # Tell the child to go, and we pause.
++       dlog("VIVIFY %s" % pid)
++       signal.signal(signal.SIGCHLD, _handle_child)
++       signal.signal(signal.SIGCONT, _handle_cont)
++       os.kill(pid, signal.SIGCONT)
++       dlog("PAUSING")
++       signal.pause()
++       dlog("CHILD GONE.  PARENT CONTINUES")
++       # We've returned.  Let's make sure all the PIDs are good.
++       for i, pid in reversed(list(enumerate(self._tomography_pids))):
++         try:
++           os.kill(pid, 0)
++           dlog("PID ALIVE %s" % pid)
++         except OSError:
++           dlog("PID DEAD  %s" % pid)
++           del self._tomography_pids[i]  # Forget it
++           self._forget_pid(pid)
++ 
++     def help_ulist(self):
++         print >>self.stdout, """ulist
++ View the list of universes saved in the multiverse."""
++ 
++ 
+      def user_line(self, frame):
+          """This function is called when we stop or break at this line."""
+          if self._wait_for_mainpyfile:
+***************
+*** 171,188 ****
+  
+      def user_return(self, frame, return_value):
+          """This function is called when a return trap is set here."""
+-         if self._wait_for_mainpyfile:
+-             return
+          frame.f_locals['__return__'] = return_value
+          print >>self.stdout, '--Return--'
+          self.interaction(frame, None)
+  
+      def user_exception(self, frame, exc_info):
+          """This function is called if an exception occurs,
+          but only if we are to stop at or just below this level."""
+-         if self._wait_for_mainpyfile:
+-             return
+-         exc_type, exc_value, exc_traceback = exc_info
+          frame.f_locals['__exception__'] = exc_type, exc_value
+          if type(exc_type) == type(''):
+              exc_type_name = exc_type
+--- 324,337 ----
+  
+      def user_return(self, frame, return_value):
+          """This function is called when a return trap is set here."""
+          frame.f_locals['__return__'] = return_value
+          print >>self.stdout, '--Return--'
+          self.interaction(frame, None)
+  
+      def user_exception(self, frame, exc_info):
++         exc_type, exc_value, exc_traceback = exc_info
+          """This function is called if an exception occurs,
+          but only if we are to stop at or just below this level."""
+          frame.f_locals['__exception__'] = exc_type, exc_value
+          if type(exc_type) == type(''):
+              exc_type_name = exc_type
+***************
+*** 193,211 ****
+      # General interaction function
+  
+      def interaction(self, frame, traceback):
+          self.setup(frame, traceback)
+          self.print_stack_entry(self.stack[self.curindex])
+          self.cmdloop()
+          self.forget()
+  
+-     def displayhook(self, obj):
+-         """Custom displayhook for the exec in default(), which prevents
+-         assignment of the _ variable in the builtins.
+-         """
+-         # reproduce the behavior of the standard displayhook, not printing None
+-         if obj is not None:
+-             print repr(obj)
+- 
+      def default(self, line):
+          if line[:1] == '!': line = line[1:]
+          locals = self.curframe.f_locals
+--- 342,354 ----
+      # General interaction function
+  
+      def interaction(self, frame, traceback):
++         if self._tomography_enabled:
++             self._tomography_snapshot(frame)
+          self.setup(frame, traceback)
+          self.print_stack_entry(self.stack[self.curindex])
+          self.cmdloop()
+          self.forget()
+  
+      def default(self, line):
+          if line[:1] == '!': line = line[1:]
+          locals = self.curframe.f_locals
+***************
+*** 214,229 ****
+              code = compile(line + '\n', '<stdin>', 'single')
+              save_stdout = sys.stdout
+              save_stdin = sys.stdin
+-             save_displayhook = sys.displayhook
+              try:
+                  sys.stdin = self.stdin
+                  sys.stdout = self.stdout
+-                 sys.displayhook = self.displayhook
+                  exec code in globals, locals
+              finally:
+                  sys.stdout = save_stdout
+                  sys.stdin = save_stdin
+-                 sys.displayhook = save_displayhook
+          except:
+              t, v = sys.exc_info()[:2]
+              if type(t) == type(''):
+--- 357,369 ----
+***************
+*** 271,278 ****
+      def handle_command_def(self,line):
+          """Handles one command line during command list definition."""
+          cmd, arg, line = self.parseline(line)
+-         if not cmd:
+-             return
+          if cmd == 'silent':
+              self.commands_silent[self.commands_bnum] = True
+              return # continue to handle other cmd def in the cmd list
+--- 411,416 ----
+***************
+*** 280,286 ****
+              self.cmdqueue = []
+              return 1 # end of cmd list
+          cmdlist = self.commands[self.commands_bnum]
+!         if arg:
+              cmdlist.append(cmd+' '+arg)
+          else:
+              cmdlist.append(cmd)
+--- 418,424 ----
+              self.cmdqueue = []
+              return 1 # end of cmd list
+          cmdlist = self.commands[self.commands_bnum]
+!         if (arg):
+              cmdlist.append(cmd+' '+arg)
+          else:
+              cmdlist.append(cmd)
+***************
+*** 319,327 ****
+          prompt_back = self.prompt
+          self.prompt = '(com) '
+          self.commands_defining = True
+-         try:
+              self.cmdloop()
+-         finally:
+              self.commands_defining = False
+              self.prompt = prompt_back
+  
+--- 457,463 ----
+***************
+*** 459,468 ****
+          Return `lineno` if it is, 0 if not (e.g. a docstring, comment, blank
+          line or EOF). Warning: testing is not comprehensive.
+          """
+!         # this method should be callable before starting debugging, so default
+!         # to "no globals" if there is no current frame
+!         globs = self.curframe.f_globals if hasattr(self, 'curframe') else None
+!         line = linecache.getline(filename, lineno, globs)
+          if not line:
+              print >>self.stdout, 'End of file'
+              return 0
+--- 595,601 ----
+          Return `lineno` if it is, 0 if not (e.g. a docstring, comment, blank
+          line or EOF). Warning: testing is not comprehensive.
+          """
+!         line = linecache.getline(filename, lineno)
+          if not line:
+              print >>self.stdout, 'End of file'
+              return 0
+***************
+*** 706,711 ****
+--- 839,845 ----
+      def do_quit(self, arg):
+          self._user_requested_quit = 1
+          self.set_quit()
++         self._tom_quit()
+          return 1
+  
+      do_q = do_quit
+***************
+*** 715,720 ****
+--- 849,855 ----
+          print >>self.stdout
+          self._user_requested_quit = 1
+          self.set_quit()
++         self._tom_quit()
+          return 1
+  
+      def do_args(self, arg):
+***************
+*** 790,796 ****
+          breaklist = self.get_file_breaks(filename)
+          try:
+              for lineno in range(first, last+1):
+!                 line = linecache.getline(filename, lineno, self.curframe.f_globals)
+                  if not line:
+                      print >>self.stdout, '[EOF]'
+                      break
+--- 925,931 ----
+          breaklist = self.get_file_breaks(filename)
+          try:
+              for lineno in range(first, last+1):
+!                 line = linecache.getline(filename, lineno)
+                  if not line:
+                      print >>self.stdout, '[EOF]'
+                      break
+***************
+*** 1231,1236 ****
+--- 1366,1372 ----
+  
+  def set_trace():
+      Pdb().set_trace(sys._getframe().f_back)
++     # TODO(tlim): By creating a new object, we lose all the old snapshots.
+  
+  # Post-Mortem interface
+  
