@@ -1,14 +1,11 @@
 timetravelpdb
 =============
 
-Adds time travel to the Python Debugger.
+Enhances the Python Debugger to add the ability to travel back in time.
 
-
-What's missing from debuggers is the ability to travel back in time.
-
-Ever use a debugger to step through a program and suddenly realize
-you wish you could jump back in time and know what a variable used
-to contain?
+Have you ever been using PDB to step through a program and suddenly
+realize you wish you could jump back in time and know what a variable
+used to contain?
 
 This version of PDB adds the ability to jump back in time to the
 state of your program as it was in the past.  You can examine
@@ -17,7 +14,7 @@ that is dangerous because it may harm the time space continuum.)
 
 How it works:
 
-As you know, time is the 4th dimmension.  Every moment is another
+As you know, time is the 4th dimension.  Every moment is another
 universe.  Pretty trippy, eh?
 
 TTPDB simply records a pointer to the current universe before
