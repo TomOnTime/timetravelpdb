@@ -12,7 +12,7 @@ state of your program as it was in the past.  You can examine
 variables and even continue execution from that point forward (though
 that is dangerous because it may harm the time space continuum.)
 
-<iframe width="490" height="370" src="http://www.youtube.com/embed/7sYigEBdG00" frameborder="0" allowfullscreen="allowfullscreen" data-link="http://www.youtube.com/watch?v=7sYigEBdG00"></iframe>
+<iframe width="560" height="315" src="https://www.youtube.com/embed/7sYigEBdG00" frameborder="0" allowfullscreen></iframe>
 
 How it works:
 
